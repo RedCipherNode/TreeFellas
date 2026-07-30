@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    diskscope_desktop_lib::run()
+    treefellas_desktop_lib::run()
 }
