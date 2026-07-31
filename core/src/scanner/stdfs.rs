@@ -3,9 +3,9 @@ use std::path::Path;
 
 use crate::types::{Entry, Metadata};
 
-pub struct Scanner;
+pub struct StdFsScanner;
 
-impl Scanner {
+impl StdFsScanner {
     pub fn scan<P: AsRef<Path>>(path: P) -> std::io::Result<Entry> {
         Self::scan_path(path.as_ref())
     }

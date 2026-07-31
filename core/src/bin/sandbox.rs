@@ -1,7 +1,7 @@
 use std::time::Instant;
 
+use treefellas_core::StdFsScanner;
 use treefellas_core::analysis::analyze;
-use treefellas_core::Scanner;
 
 fn main() -> std::io::Result<()> {
     // Ganti sesuai kebutuhan
@@ -11,7 +11,7 @@ fn main() -> std::io::Result<()> {
 
     let start = Instant::now();
 
-    let tree = Scanner::scan(path)?;
+    let tree = StdFsScanner::scan(path)?;
 
     println!("Scan finished in {:?}", start.elapsed());
 
