@@ -2,116 +2,174 @@
     box-sizing: border-box;
 }
 
+:root {
+    color-scheme: dark;
+
+    --background: #1e1e1e;
+
+    --surface: #252526;
+    --surface-2: #2d2d30;
+
+    --border: #3b3b3b;
+
+    --text: #f3f3f3;
+    --text-secondary: #b8b8b8;
+
+    --accent: #0e639c;
+    --accent-hover: #1177bb;
+}
+
+html,
+body,
 #root {
-    width: 100vw;
-    height: 100vh;
+    width: 100%;
+    height: 100%;
 
     margin: 0;
-    padding: 0;
 }
 
 body {
-    margin: 0;
+    background: var(--background);
+
+    color: var(--text);
 
     font-family: "Segoe UI", sans-serif;
-
-    background: #f5f5f5;
 }
 
 .app {
     display: flex;
     flex-direction: column;
 
-    width: 100%;
     height: 100%;
-}
-
-.toolbar {
-    display: flex;
-    flex-direction: column;
-
-    gap: 12px;
-
-    padding: 16px 20px;
-
-    background: white;
-
-    border-bottom: 1px solid #ddd;
-}
-
-.toolbar-top {
-    display: flex;
-
-    justify-content: space-between;
-    align-items: center;
-}
-
-.toolbar-top h1 {
-    margin: 0;
-
-    font-size: 30px;
-}
-
-.overview {
-    display: flex;
-
-    gap: 20px;
-
-    font-size: 14px;
-}
-
-.toolbar-bottom {
-    display: flex;
-
-    justify-content: space-between;
-    align-items: center;
-}
-
-.toolbar-actions {
-    display: flex;
 
     gap: 10px;
+    padding: 10px;
 }
 
-.toolbar-bottom input {
-    width: 250px;
+/* ==========================================================
+   Toolbar
+   ========================================================== */
 
-    padding: 6px 10px;
-}
+.toolbar {
+    display: grid;
 
-.main {
-    display: flex;
-    flex-direction: column;
-
-    flex: 1;
+    grid-template-columns: 4fr 3fr 3fr;
 
     gap: 16px;
 
-    padding: 16px;
+    padding: 12px;
+
+    background: var(--surface);
+
+    border: 1px solid var(--border);
+
+    border-radius: 4px;
+}
+
+.toolbar-location {
+    display: flex;
+
+    flex-direction: column;
+
+    gap: 8px;
+}
+
+.location-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.location-bar {
+    flex: 1;
+    min-width: 0;
+}
+
+
+
+.location-actions button {
+    min-width: 80px;
+}
+
+.toolbar-overview {
+    display: flex;
+
+    flex-direction: column;
+
+    justify-content: center;
+
+    gap: 8px;
+}
+
+.toolbar-overview > div {
+    display: flex;
+
+    justify-content: space-between;
+
+    gap: 24px;
+}
+
+.scan-progress {
+    width: 100%;
+    height: 6px;
+
+    background: var(--surface-2);
+
+    border-radius: 999px;
 
     overflow: hidden;
 }
 
+.scan-progress-fill {
+    width: 40%;
+    height: 100%;
+
+    background: var(--accent);
+}
+
+
+
+.search-bar {
+    width: 100%;
+}
+
+/* ==========================================================
+   Panels
+   ========================================================== */
+
 .panel {
-    background: white;
+    display: flex;
+    flex-direction: column;
 
-    border: 1px solid #ddd;
+    background: var(--surface);
 
-    border-radius: 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
 
-    padding: 12px;
+    overflow: hidden;
 }
 
 .panel-header {
     display: flex;
 
     justify-content: space-between;
+
     align-items: center;
 
-    margin-bottom: 12px;
+    padding: 10px 12px;
+
+    border-bottom: 1px solid var(--border);
+}
+
+.panel-title {
+    font-weight: 600;
 }
 
 .panel-body {
+    flex: 1;
+
+    padding: 8px;
+
     overflow: auto;
 }
 
@@ -123,6 +181,10 @@ body {
     height: 260px;
 }
 
+/* ==========================================================
+   Tree
+   ========================================================== */
+
 .tree-table {
     width: 100%;
 
@@ -130,11 +192,11 @@ body {
 }
 
 .tree-table th {
-    text-align: left;
-
     padding: 8px;
 
-    border-bottom: 1px solid #ddd;
+    text-align: left;
+
+    border-bottom: 1px solid var(--border);
 }
 
 .tree-table td {
@@ -146,18 +208,8 @@ body {
     text-align: right;
 }
 
-.empty-state {
-    display: flex;
-
-    justify-content: center;
-    align-items: center;
-
-    height: 100%;
-
-    color: #888;
-}
 .tree-row:hover {
-    background: #f3f3f3;
+    background: var(--surface-2);
 }
 
 .tree-name {
@@ -173,17 +225,20 @@ body {
     width: 18px;
     height: 18px;
 
+    padding: 0;
+
     border: none;
+    border-radius: 3px;
+
     background: transparent;
 
-    cursor: pointer;
+    color: var(--text);
 
-    padding: 0;
+    cursor: pointer;
 }
 
 .tree-toggle:hover {
-    background: #e7e7e7;
-    border-radius: 3px;
+    background: var(--surface-2);
 }
 
 .tree-toggle-placeholder {
@@ -196,4 +251,60 @@ body {
     width: 18px;
 
     text-align: center;
+}
+
+/* ==========================================================
+   Empty State
+   ========================================================== */
+
+.empty-state {
+    display: flex;
+
+    justify-content: center;
+    align-items: center;
+
+    height: 100%;
+
+    color: var(--text-secondary);
+}
+
+/* ==========================================================
+   Form Controls
+   ========================================================== */
+
+button {
+    padding: 6px 12px;
+
+    border: 1px solid var(--border);
+    border-radius: 4px;
+
+    background: var(--surface-2);
+
+    color: var(--text);
+
+    cursor: pointer;
+
+    transition: background 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+    background: #3a3a3a;
+}
+
+button:disabled {
+    opacity: 0.6;
+
+    cursor: not-allowed;
+}
+
+input,
+select {
+    padding: 6px 10px;
+
+    border: 1px solid var(--border);
+    border-radius: 4px;
+
+    background: var(--surface-2);
+
+    color: var(--text);
 }

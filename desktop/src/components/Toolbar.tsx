@@ -2,83 +2,53 @@ import { Analysis } from "../types/analysis";
 import { formatNumber, formatSize } from "../utils/formatter";
 
 interface ToolbarProps {
-    drives: string[];
-    selectedDrive: string;
+  location: string;
+  loading: boolean;
+  analysis: Analysis | null;
 
-    loading: boolean;
-
-    analysis: Analysis | null;
-
-    onDriveChange: (drive: string) => void;
-    onScan: () => void;
+  onLocationChange: (location: string) => void;
+  onBrowse: () => void;
+  onScan: () => void;
 }
 
-export default function Toolbar({
-    drives,
-    selectedDrive,
-    loading,
-    analysis,
-    onDriveChange,
-    onScan,
-}: ToolbarProps) {
-    return (
-        <header className="toolbar">
-            <div className="toolbar-top">
-                <h1>TreeFellas</h1>
+export default function Toolbar({ location, loading, analysis, onLocationChange, onBrowse, onScan }: ToolbarProps) {
+  return (
+    <header className="toolbar">
+      <div className="toolbar-location">
+        {" "}
+        <div className="location-actions">
+          <input className="location-bar" value={location} onChange={(e) => onLocationChange(e.target.value)} />
 
-                <div className="overview">
-                    {analysis ? (
-                        <>
-                            <span>Size {formatSize(analysis.total_size)}</span>
+          <button onClick={onBrowse}>Browse</button>
 
-                            <span>Files {formatNumber(analysis.total_files)}</span>
+          <button disabled={loading} onClick={onScan}>
+            {loading ? "Scanning..." : "Scan"}
+          </button>
+        </div>
+        <div className="scan-progress">{loading && <div className="scan-progress-fill" />}</div>
+      </div>
 
-                            <span>
-                                Directories{" "}
-                                {formatNumber(analysis.total_directories)}
-                            </span>
-                        </>
-                    ) : (
-                        <>
-                            <span>Size --</span>
-                            <span>Files --</span>
-                            <span>Directories --</span>
-                        </>
-                    )}
-                </div>
-            </div>
+      <div className="toolbar-overview">
+        <div>
+          <span>Size </span>
 
-            <div className="toolbar-bottom">
-                <div className="toolbar-actions">
-                    <select
-                        value={selectedDrive}
-                        onChange={(e) =>
-                            onDriveChange(e.target.value)
-                        }
-                    >
-                        {drives.map((drive) => (
-                            <option
-                                key={drive}
-                                value={drive}
-                            >
-                                {drive}
-                            </option>
-                        ))}
-                    </select>
+          <strong>{analysis ? formatSize(analysis.total_size) : "--"}</strong>
+        </div>
 
-                    <button
-                        disabled={loading}
-                        onClick={onScan}
-                    >
-                        {loading ? "Scanning..." : "Scan"}
-                    </button>
-                </div>
+        <div>
+          <span>Files </span>
 
-                <input
-                    type="text"
-                    placeholder="Search..."
-                />
-            </div>
-        </header>
-    );
+          <strong>{analysis ? formatNumber(analysis.total_files) : "--"}</strong>
+        </div>
+
+        <div>
+          <span>Dirs </span>
+
+          <strong>{analysis ? formatNumber(analysis.total_directories) : "--"}</strong>
+        </div>
+      </div>
+
+      <div className="toolbar-extra"></div>
+    </header>
+  );
 }

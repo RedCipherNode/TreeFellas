@@ -11,7 +11,8 @@ impl Scanner {
     }
 
     fn scan_path(path: &Path) -> std::io::Result<Entry> {
-        let metadata = fs::metadata(path)?;
+        // Jangan follow symlink/junction
+        let metadata = fs::symlink_metadata(path)?;
 
         let mut entry = Entry {
             name: path
@@ -28,11 +29,10 @@ impl Scanner {
             file_count: 0,
             directory_count: 0,
 
-            // Metadata detail diambil nanti saat dibutuhkan
             metadata: Metadata {
                 created: None,
                 modified: None,
-                readonly: false,
+                readonly: metadata.permissions().readonly(),
 
                 #[cfg(windows)]
                 hidden: false,
@@ -44,6 +44,11 @@ impl Scanner {
             children: Vec::new(),
         };
 
+        // Skip symlink / junction
+        if metadata.file_type().is_symlink() {
+            return Ok(entry);
+        }
+
         if metadata.is_file() {
             entry.size = metadata.len();
             entry.file_count = 1;
@@ -53,8 +58,17 @@ impl Scanner {
 
         entry.directory_count = 1;
 
-        for child in fs::read_dir(path)? {
-            let child = child?;
+        // Jangan gagal kalau folder tidak bisa dibuka
+        let children = match fs::read_dir(path) {
+            Ok(children) => children,
+            Err(_) => return Ok(entry),
+        };
+
+        for child in children {
+            let child = match child {
+                Ok(child) => child,
+                Err(_) => continue,
+            };
 
             if let Ok(child_entry) = Self::scan_dir_entry(child) {
                 entry.size += child_entry.size;
@@ -69,6 +83,8 @@ impl Scanner {
     }
 
     fn scan_dir_entry(child: DirEntry) -> std::io::Result<Entry> {
-        Self::scan_path(&child.path())
+        let path = child.path();
+
+        Self::scan_path(path.as_path())
     }
 }

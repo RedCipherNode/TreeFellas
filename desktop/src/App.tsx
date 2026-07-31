@@ -9,59 +9,55 @@ import { ScanResult } from "./types/analysis";
 
 import "./App.css";
 
-function App() {
-    const [drives, setDrives] = useState<string[]>([]);
-    const [selectedDrive, setSelectedDrive] = useState("");
+export default function App() {
+  const [location, setLocation] = useState("");
 
-    const [scanResult, setScanResult] =
-        useState<ScanResult | null>(null);
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
 
-    const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-    useEffect(() => {
-        invoke<string[]>("get_drives").then((result) => {
-            setDrives(result);
+  useEffect(() => {
+    async function loadDefaultLocation() {
+      const drives = await invoke<string[]>("get_drives");
 
-            if (result.length > 0) {
-                setSelectedDrive(result[0]);
-            }
-        });
-    }, []);
-
-    async function scan() {
-        setLoading(true);
-
-        try {
-            const result = await invoke<ScanResult>("scan", {
-                path: selectedDrive,
-            });
-
-            setScanResult(result);
-        } finally {
-            setLoading(false);
-        }
+      if (drives.length > 0) {
+        setLocation(drives[0]);
+      }
     }
 
-    return (
-        <div className="app">
-            <Toolbar
-                drives={drives}
-                selectedDrive={selectedDrive}
-                loading={loading}
-                analysis={scanResult?.analysis ?? null}
-                onDriveChange={setSelectedDrive}
-                onScan={scan}
-            />
+    loadDefaultLocation();
+  }, []);
 
-            <main className="main">
-                <FileSystem
-                    tree={scanResult?.tree ?? null}
-                />
+  async function browse() {
+    // TODO:
+    // Open folder picker
+  }
 
-                <Treemap />
-            </main>
-        </div>
-    );
+  async function scan() {
+    if (!location.trim()) {
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const result = await invoke<ScanResult>("scan", {
+        path: location,
+      });
+
+      setScanResult(result);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="app">
+      <Toolbar location={location} loading={loading} analysis={scanResult?.analysis ?? null} onLocationChange={setLocation} onBrowse={browse} onScan={scan} />
+
+      <FileSystem location={location} tree={scanResult?.tree ?? null} />
+
+      <Treemap analysis={scanResult?.analysis ?? null} />
+    </div>
+  );
 }
-
-export default App;
