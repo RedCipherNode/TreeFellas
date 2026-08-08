@@ -26,5 +26,32 @@ fn main() -> std::io::Result<()> {
     println!("Next Attribute  : {}", record.next_attribute_id);
     println!("Record Number   : {}", record.record_number);
 
+    println!();
+    println!("===== Attributes =====");
+
+    for attribute in &record.attributes {
+        println!(
+            "Type: 0x{:08X} | Length: {} | Non-resident: {}",
+            attribute.attribute_type, attribute.length, attribute.non_resident
+        );
+    }
+
+    println!();
+    println!("===== File Names =====");
+
+    for file_name in &record.file_names {
+        println!("Name   : {}", file_name.name);
+        println!(
+            "Parent Record : {}",
+            file_name.parent_reference.record_number
+        );
+
+        println!(
+            "Parent Seq    : {}",
+            file_name.parent_reference.sequence_number
+        );
+        println!("Size   : {}", file_name.real_size);
+    }
+
     Ok(())
 }
