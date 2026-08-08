@@ -4,7 +4,6 @@ use treefellas_core::StdFsScanner;
 use treefellas_core::analysis::analyze;
 
 fn main() -> std::io::Result<()> {
-    // Ganti sesuai kebutuhan
     let path = r"D:\";
 
     println!("Scanning: {}", path);
