@@ -19,14 +19,19 @@ pub struct NtfsBootSector {
 }
 
 impl NtfsScanner {
-    pub fn scan(volume: &str) -> io::Result<()> {
-        let mut file = File::open(volume)?;
+    pub fn scan(drive: &str) -> io::Result<Vec<u8>> {
+        let volume = volume_path(drive);
+
+        let mut file = File::open(&volume)?;
 
         let boot_sector = Self::read_boot_sector(&mut file)?;
 
-        println!("{:#?}", boot_sector);
+        let mft_offset = boot_sector.mft_offset();
+        let record_size = boot_sector.file_record_size();
 
-        Ok(())
+        let record = Self::read_mft_record(&mut file, mft_offset, record_size)?;
+
+        Ok(record)
     }
 
     fn read_boot_sector(file: &mut File) -> io::Result<NtfsBootSector> {
@@ -80,8 +85,43 @@ impl NtfsScanner {
             volume_serial,
         })
     }
+
+    fn read_mft_record(file: &mut File, offset: u64, size: u64) -> io::Result<Vec<u8>> {
+        file.seek(SeekFrom::Start(offset))?;
+
+        let mut record = vec![0u8; size as usize];
+
+        file.read_exact(&mut record)?;
+
+        if record.len() < 4 || &record[0..4] != b"FILE" {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Invalid MFT record signature",
+            ));
+        }
+
+        Ok(record)
+    }
 }
 
 fn volume_path(drive: &str) -> String {
     format!(r"\\.\{}", drive.trim_end_matches('\\'))
+}
+
+impl NtfsBootSector {
+    pub fn cluster_size(&self) -> u64 {
+        self.bytes_per_sector as u64 * self.sectors_per_cluster as u64
+    }
+
+    pub fn mft_offset(&self) -> u64 {
+        self.mft_cluster as u64 * self.cluster_size()
+    }
+
+    pub fn file_record_size(&self) -> u64 {
+        if self.clusters_per_file_record > 0 {
+            self.clusters_per_file_record as u64 * self.cluster_size()
+        } else {
+            1u64 << (-self.clusters_per_file_record as i32)
+        }
+    }
 }
