@@ -82,6 +82,8 @@ fn main() -> std::io::Result<()> {
     let mut files = 0u64;
     let mut directories = 0u64;
 
+    let start = Instant::now();
+
     reader.enumerate_records(|_, record| match record {
         Some(record) => {
             used += 1;
@@ -98,15 +100,7 @@ fn main() -> std::io::Result<()> {
         }
     })?;
 
-    let start = Instant::now();
-
-    reader.enumerate_records(|_, record| {
-        // statistik
-    })?;
-
-    println!("Elapsed : {:?}", start.elapsed());
-
-    println!("Records     : {}", record_count);
+    println!("Records     : {}", reader.record_count());
     println!("Used        : {}", used);
     println!("Unused      : {}", unused);
     println!("Files       : {}", files);

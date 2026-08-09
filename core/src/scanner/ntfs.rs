@@ -746,6 +746,9 @@ impl MftReader {
     where
         F: FnMut(u64, Option<MftRecord>),
     {
+        const CHUNK_SIZE: u64 = 8 * 1024 * 1024;
+
+        let record_count = self.record_count();
         let mut record_number = 0u64;
 
         for run in &self.runs {
@@ -758,30 +761,55 @@ impl MftReader {
 
             let run_size = run.cluster_count * self.cluster_size;
 
-            let mut remaining = run_size;
-
             let physical_offset = run.start_lcn as u64 * self.cluster_size;
 
-            self.file.seek(SeekFrom::Start(physical_offset))?;
+            let mut run_position = 0u64;
 
-            while remaining >= self.record_size && record_number < self.record_count() {
-                let mut record = vec![0u8; self.record_size as usize];
+            while run_position < run_size && record_number < record_count {
+                let remaining = run_size - run_position;
 
-                self.file.read_exact(&mut record)?;
+                let mut chunk_size = remaining.min(CHUNK_SIZE);
 
-                remaining -= self.record_size;
+                chunk_size -= chunk_size % self.record_size;
 
-                let parsed = if &record[0..4] == b"FILE" {
-                    NtfsScanner::apply_fixup(&mut record, self.bytes_per_sector)?;
+                if chunk_size == 0 {
+                    break;
+                }
 
-                    Some(NtfsScanner::parse_mft_record(&record, false)?)
-                } else {
-                    None
-                };
+                self.file
+                    .seek(SeekFrom::Start(physical_offset + run_position))?;
 
-                callback(record_number, parsed);
+                let mut buffer = vec![0u8; chunk_size as usize];
 
-                record_number += 1;
+                self.file.read_exact(&mut buffer)?;
+
+                let records_in_chunk = chunk_size / self.record_size;
+
+                for index in 0..records_in_chunk {
+                    if record_number >= record_count {
+                        break;
+                    }
+
+                    let start = (index * self.record_size) as usize;
+
+                    let end = start + self.record_size as usize;
+
+                    let record = &mut buffer[start..end];
+
+                    let parsed = if &record[0..4] == b"FILE" {
+                        NtfsScanner::apply_fixup(record, self.bytes_per_sector)?;
+
+                        Some(NtfsScanner::parse_mft_record(record, false)?)
+                    } else {
+                        None
+                    };
+
+                    callback(record_number, parsed);
+
+                    record_number += 1;
+                }
+
+                run_position += chunk_size;
             }
         }
 
