@@ -53,5 +53,65 @@ fn main() -> std::io::Result<()> {
         println!("Size   : {}", file_name.real_size);
     }
 
+    if let Some(data) = &record.data {
+        println!();
+        println!("===== $DATA =====");
+        println!("Allocated : {}", data.allocated_size);
+        println!("Real Size : {}", data.real_size);
+        println!("Initialized: {}", data.initialized_size);
+
+        println!();
+        println!("===== Data Runs =====");
+
+        for run in &data.runs {
+            println!("LCN: {} | Clusters: {}", run.start_lcn, run.cluster_count);
+        }
+    }
+
+    let mut reader = NtfsScanner::open_mft_reader(drive)?;
+
+    println!();
+    println!("===== MFT Enumeration =====");
+
+    let start = Instant::now();
+
+    let record_count = reader.record_count();
+
+    let mut used = 0u64;
+    let mut unused = 0u64;
+    let mut files = 0u64;
+    let mut directories = 0u64;
+
+    reader.enumerate_records(|_, record| match record {
+        Some(record) => {
+            used += 1;
+
+            if record.flags & 0x0002 != 0 {
+                directories += 1;
+            } else {
+                files += 1;
+            }
+        }
+
+        None => {
+            unused += 1;
+        }
+    })?;
+
+    let start = Instant::now();
+
+    reader.enumerate_records(|_, record| {
+        // statistik
+    })?;
+
+    println!("Elapsed : {:?}", start.elapsed());
+
+    println!("Records     : {}", record_count);
+    println!("Used        : {}", used);
+    println!("Unused      : {}", unused);
+    println!("Files       : {}", files);
+    println!("Directories : {}", directories);
+    println!("Elapsed     : {:?}", start.elapsed());
+
     Ok(())
 }

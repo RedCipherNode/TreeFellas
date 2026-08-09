@@ -42,6 +42,8 @@ pub struct MftRecord {
 
     pub attributes: Vec<MftAttribute>,
     pub file_names: Vec<FileNameAttribute>,
+
+    pub data: Option<MftDataAttribute>,
 }
 
 #[derive(Debug)]
@@ -77,18 +79,37 @@ pub struct MftFileReference {
     pub sequence_number: u16,
 }
 
+#[derive(Debug)]
+pub struct MftDataRun {
+    pub start_lcn: i64,
+    pub cluster_count: u64,
+}
+
+#[derive(Debug)]
+pub struct MftDataAttribute {
+    pub allocated_size: u64,
+    pub real_size: u64,
+    pub initialized_size: u64,
+    pub runs: Vec<MftDataRun>,
+}
+
+pub struct MftReader {
+    file: File,
+    runs: Vec<MftDataRun>,
+
+    bytes_per_sector: usize,
+    cluster_size: u64,
+    record_size: u64,
+    real_size: u64,
+}
+
 impl NtfsScanner {
     pub fn scan(drive: &str) -> io::Result<MftRecord> {
         let volume = volume_path(drive);
-
         let mut file = File::open(&volume)?;
-
         let boot_sector = Self::read_boot_sector(&mut file)?;
-
         let mft_offset = boot_sector.mft_offset();
-
         let record_size = boot_sector.file_record_size();
-
         Self::read_mft_record(
             &mut file,
             mft_offset,
@@ -170,7 +191,7 @@ impl NtfsScanner {
 
         Self::apply_fixup(&mut record, bytes_per_sector)?;
 
-        Self::parse_mft_record(&record)
+        Self::parse_mft_record(&record, true)
     }
 
     fn apply_fixup(record: &mut [u8], bytes_per_sector: usize) -> io::Result<()> {
@@ -232,7 +253,7 @@ impl NtfsScanner {
         Ok(())
     }
 
-    fn parse_mft_record(record: &[u8]) -> io::Result<MftRecord> {
+    fn parse_mft_record(record: &[u8], parse_data: bool) -> io::Result<MftRecord> {
         if record.len() < 48 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -263,10 +284,18 @@ impl NtfsScanner {
         let attributes = Self::parse_attributes(record, first_attribute_offset)?;
 
         let mut file_names = Vec::new();
-
+        let mut data = None;
         for attribute in &attributes {
-            if attribute.attribute_type == 0x30 {
-                file_names.push(Self::parse_file_name(record, attribute)?);
+            match attribute.attribute_type {
+                0x30 => {
+                    file_names.push(Self::parse_file_name(record, attribute)?);
+                }
+
+                0x80 if parse_data => {
+                    data = Some(Self::parse_data_attribute(record, attribute)?);
+                }
+
+                _ => {}
             }
         }
 
@@ -286,6 +315,7 @@ impl NtfsScanner {
             record_number,
             attributes,
             file_names,
+            data,
         })
     }
 
@@ -451,6 +481,165 @@ impl NtfsScanner {
             name,
         })
     }
+
+    fn parse_data_attribute(
+        record: &[u8],
+        attribute: &MftAttribute,
+    ) -> io::Result<MftDataAttribute> {
+        if !attribute.non_resident {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "$DATA attribute is resident",
+            ));
+        }
+
+        let offset = attribute.offset;
+
+        if offset + 64 > record.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Invalid non-resident $DATA attribute",
+            ));
+        }
+
+        let allocated_size =
+            u64::from_le_bytes(record[offset + 40..offset + 48].try_into().unwrap());
+
+        let real_size = u64::from_le_bytes(record[offset + 48..offset + 56].try_into().unwrap());
+
+        let initialized_size =
+            u64::from_le_bytes(record[offset + 56..offset + 64].try_into().unwrap());
+
+        let mapping_pairs_offset =
+            u16::from_le_bytes([record[offset + 32], record[offset + 33]]) as usize;
+
+        let run_start = offset + mapping_pairs_offset;
+        let attribute_end = offset + attribute.length as usize;
+
+        if run_start > attribute_end || attribute_end > record.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Invalid mapping pairs offset",
+            ));
+        }
+
+        let runs = Self::parse_mapping_pairs(&record[run_start..attribute_end])?;
+
+        Ok(MftDataAttribute {
+            allocated_size,
+            real_size,
+            initialized_size,
+            runs,
+        })
+    }
+
+    fn parse_mapping_pairs(data: &[u8]) -> io::Result<Vec<MftDataRun>> {
+        let mut runs = Vec::new();
+        let mut offset = 0usize;
+        let mut current_lcn = 0i64;
+
+        while offset < data.len() {
+            let header = data[offset];
+            offset += 1;
+
+            if header == 0 {
+                break;
+            }
+
+            let length_size = (header & 0x0F) as usize;
+            let offset_size = ((header >> 4) & 0x0F) as usize;
+
+            if length_size == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Invalid mapping pair length",
+                ));
+            }
+
+            if offset + length_size + offset_size > data.len() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Mapping pair exceeds attribute",
+                ));
+            }
+
+            let mut cluster_count = 0u64;
+
+            for i in 0..length_size {
+                cluster_count |= (data[offset + i] as u64) << (i * 8);
+            }
+
+            offset += length_size;
+
+            let mut lcn_delta = 0i64;
+
+            if offset_size > 0 {
+                let mut value = 0i64;
+
+                for i in 0..offset_size {
+                    value |= (data[offset + i] as i64) << (i * 8);
+                }
+
+                // Sign extend the relative LCN.
+                if data[offset + offset_size - 1] & 0x80 != 0 {
+                    value |= !0i64 << (offset_size * 8);
+                }
+
+                lcn_delta = value;
+            }
+
+            offset += offset_size;
+
+            current_lcn += lcn_delta;
+
+            runs.push(MftDataRun {
+                start_lcn: current_lcn,
+                cluster_count,
+            });
+        }
+
+        Ok(runs)
+    }
+
+    //  Helpers temporary
+    pub fn open_mft_reader(drive: &str) -> io::Result<MftReader> {
+        let volume = volume_path(drive);
+
+        let mut file = File::open(&volume)?;
+
+        let boot_sector = Self::read_boot_sector(&mut file)?;
+
+        let cluster_size = boot_sector.cluster_size();
+
+        let mft_offset = boot_sector.mft_offset();
+
+        let record_size = boot_sector.file_record_size();
+
+        file.seek(SeekFrom::Start(mft_offset))?;
+
+        let mut record = vec![0u8; record_size as usize];
+
+        file.read_exact(&mut record)?;
+
+        Self::apply_fixup(&mut record, boot_sector.bytes_per_sector as usize)?;
+
+        let mft_record = Self::parse_mft_record(&record, true)?;
+
+        let data = mft_record.data.ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "$MFT has no $DATA attribute")
+        })?;
+
+        let reader = MftReader::new(
+            file,
+            data.runs,
+            boot_sector.bytes_per_sector as usize,
+            cluster_size,
+            record_size,
+            data.real_size,
+        );
+
+        Ok(reader)
+    }
 }
 
 fn volume_path(drive: &str) -> String {
@@ -472,5 +661,134 @@ impl NtfsBootSector {
         } else {
             1u64 << (-self.clusters_per_file_record as i32)
         }
+    }
+}
+
+impl MftReader {
+    fn new(
+        file: File,
+        runs: Vec<MftDataRun>,
+        bytes_per_sector: usize,
+        cluster_size: u64,
+        record_size: u64,
+        real_size: u64,
+    ) -> Self {
+        Self {
+            file,
+            runs,
+            bytes_per_sector,
+            cluster_size,
+            record_size,
+            real_size,
+        }
+    }
+
+    fn resolve_offset(&self, logical_offset: u64) -> io::Result<u64> {
+        if logical_offset >= self.real_size {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "MFT offset exceeds real size",
+            ));
+        }
+
+        let mut logical_start = 0u64;
+
+        for run in &self.runs {
+            let run_size = run.cluster_count * self.cluster_size;
+
+            let logical_end = logical_start + run_size;
+
+            if logical_offset < logical_end {
+                let within_run = logical_offset - logical_start;
+
+                if run.start_lcn < 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Negative LCN is not supported",
+                    ));
+                }
+
+                return Ok(run.start_lcn as u64 * self.cluster_size + within_run);
+            }
+
+            logical_start = logical_end;
+        }
+
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Unable to resolve MFT logical offset",
+        ))
+    }
+
+    pub fn read_record(&mut self, record_number: u64) -> io::Result<Option<MftRecord>> {
+        let logical_offset = record_number.checked_mul(self.record_size).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "MFT record offset overflow")
+        })?;
+
+        let physical_offset = self.resolve_offset(logical_offset)?;
+
+        self.file.seek(SeekFrom::Start(physical_offset))?;
+
+        let mut record = vec![0u8; self.record_size as usize];
+
+        self.file.read_exact(&mut record)?;
+
+        if record.len() < 4 || &record[0..4] != b"FILE" {
+            return Ok(None);
+        }
+
+        NtfsScanner::apply_fixup(&mut record, self.bytes_per_sector)?;
+
+        Ok(Some(NtfsScanner::parse_mft_record(&record, false)?))
+    }
+
+    pub fn enumerate_records<F>(&mut self, mut callback: F) -> io::Result<()>
+    where
+        F: FnMut(u64, Option<MftRecord>),
+    {
+        let mut record_number = 0u64;
+
+        for run in &self.runs {
+            if run.start_lcn < 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Negative LCN is not supported",
+                ));
+            }
+
+            let run_size = run.cluster_count * self.cluster_size;
+
+            let mut remaining = run_size;
+
+            let physical_offset = run.start_lcn as u64 * self.cluster_size;
+
+            self.file.seek(SeekFrom::Start(physical_offset))?;
+
+            while remaining >= self.record_size && record_number < self.record_count() {
+                let mut record = vec![0u8; self.record_size as usize];
+
+                self.file.read_exact(&mut record)?;
+
+                remaining -= self.record_size;
+
+                let parsed = if &record[0..4] == b"FILE" {
+                    NtfsScanner::apply_fixup(&mut record, self.bytes_per_sector)?;
+
+                    Some(NtfsScanner::parse_mft_record(&record, false)?)
+                } else {
+                    None
+                };
+
+                callback(record_number, parsed);
+
+                record_number += 1;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn record_count(&self) -> u64 {
+        self.real_size / self.record_size
     }
 }
