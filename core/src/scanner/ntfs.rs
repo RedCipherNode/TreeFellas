@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
+use std::path::Path;
+
+use crate::types::{Entry, Metadata};
 
 pub struct NtfsScanner;
 
@@ -111,8 +114,20 @@ pub struct NtfsNode {
     pub parent_reference: MftFileReference,
 
     pub name: String,
+
     pub size: u64,
+    pub allocated_size: u64,
+
     pub is_directory: bool,
+
+    pub created_time: u64,
+    pub modified_time: u64,
+    pub changed_time: u64,
+    pub accessed_time: u64,
+
+    pub flags: u32,
+    pub reparse_value: u32,
+    pub name_namespace: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -667,9 +682,22 @@ impl NtfsScanner {
         NtfsNode {
             file_reference,
             parent_reference: file_name.parent_reference,
+
             name: file_name.name.clone(),
+
             size: file_name.real_size,
+            allocated_size: file_name.allocated_size,
+
             is_directory: file_name.flags & 0x10000000 != 0,
+
+            created_time: file_name.created_time,
+            modified_time: file_name.modified_time,
+            changed_time: file_name.changed_time,
+            accessed_time: file_name.accessed_time,
+
+            flags: file_name.flags,
+            reparse_value: file_name.reparse_value,
+            name_namespace: file_name.name_namespace,
         }
     }
 }
@@ -966,5 +994,95 @@ impl NtfsTree {
 
     pub fn unattached_count(&self) -> usize {
         self.unattached.len()
+    }
+
+    pub fn to_entries(&self, root_path: &Path) -> Vec<Entry> {
+        self.roots
+            .iter()
+            .copied()
+            .map(|root| self.build_entry(root, root_path))
+            .collect()
+    }
+
+    fn build_entry(&self, id: NodeId, parent_path: &Path) -> Entry {
+        let node = &self.nodes[id.0];
+
+        let is_root = node.file_reference.record_number == 5;
+
+        let path = if is_root {
+            parent_path.to_path_buf()
+        } else {
+            parent_path.join(&node.name)
+        };
+
+        let name = if is_root {
+            parent_path.display().to_string()
+        } else {
+            node.name.clone()
+        };
+
+        let children = self
+            .children(id)
+            .unwrap_or_default()
+            .iter()
+            .copied()
+            .map(|child_id| self.build_entry(child_id, &path))
+            .collect::<Vec<_>>();
+
+        if node.is_directory {
+            let size = children.iter().map(|child| child.size).sum();
+            let allocated_size = children.iter().map(|child| child.allocated_size).sum();
+
+            let file_count = children.iter().map(|child| child.file_count).sum();
+
+            let directory_count = 1 + children
+                .iter()
+                .map(|child| child.directory_count)
+                .sum::<u64>();
+
+            Entry {
+                name,
+                path,
+
+                is_directory: true,
+
+                size,
+                allocated_size,
+
+                file_count,
+                directory_count,
+
+                metadata: Metadata {
+                    created: None,
+                    modified: None,
+                    readonly: false,
+                    hidden: false,
+                },
+
+                children,
+            }
+        } else {
+            Entry {
+                name,
+                path,
+
+                is_directory: false,
+
+                size: node.size,
+                allocated_size: node.allocated_size,
+
+                file_count: 1,
+                directory_count: 0,
+
+                metadata: Metadata {
+                    created: None,
+                    modified: None,
+                    readonly: false,
+                    hidden: false,
+                },
+
+                children,
+            }
+        }
     }
 }

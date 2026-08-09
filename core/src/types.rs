@@ -19,6 +19,7 @@ pub struct Entry {
     pub is_directory: bool,
 
     pub size: u64,
+    pub allocated_size: u64,
 
     pub file_count: u64,
     pub directory_count: u64,
@@ -32,6 +33,7 @@ pub struct Entry {
 pub struct EntrySummary {
     pub path: String,
     pub size: u64,
+    pub allocated_size: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -44,6 +46,8 @@ pub struct ExtensionStatistic {
 #[derive(Debug, Clone, Serialize)]
 pub struct Analysis {
     pub total_size: u64,
+    pub total_allocated_size: u64,
+
     pub total_files: u64,
     pub total_directories: u64,
 

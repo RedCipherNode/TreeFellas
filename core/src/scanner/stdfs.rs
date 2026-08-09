@@ -24,6 +24,7 @@ impl StdFsScanner {
             path: path.to_path_buf(),
 
             is_directory: metadata.is_dir(),
+            allocated_size: metadata.len(),
 
             size: 0,
             file_count: 0,
