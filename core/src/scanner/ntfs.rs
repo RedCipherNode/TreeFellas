@@ -1,8 +1,10 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 
 pub struct NtfsScanner;
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct NtfsBootSector {
     pub bytes_per_sector: u16,
@@ -73,7 +75,7 @@ pub struct FileNameAttribute {
     pub name: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MftFileReference {
     pub record_number: u64,
     pub sequence_number: u16,
@@ -101,6 +103,27 @@ pub struct MftReader {
     cluster_size: u64,
     record_size: u64,
     real_size: u64,
+}
+
+#[derive(Debug)]
+pub struct NtfsNode {
+    pub file_reference: MftFileReference,
+    pub parent_reference: MftFileReference,
+
+    pub name: String,
+    pub size: u64,
+    pub is_directory: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NodeId(usize);
+
+pub struct NtfsTree {
+    nodes: Vec<NtfsNode>,
+    children: Vec<Vec<NodeId>>,
+    by_reference: HashMap<MftFileReference, Vec<NodeId>>,
+    roots: Vec<NodeId>,
+    unattached: Vec<NodeId>,
 }
 
 impl NtfsScanner {
@@ -203,9 +226,7 @@ impl NtfsScanner {
         }
 
         let usa_offset = u16::from_le_bytes([record[4], record[5]]) as usize;
-
         let usa_count = u16::from_le_bytes([record[6], record[7]]) as usize;
-
         if usa_offset + (usa_count * 2) > record.len() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -221,7 +242,6 @@ impl NtfsScanner {
         }
 
         let update_sequence = u16::from_le_bytes([record[usa_offset], record[usa_offset + 1]]);
-
         for i in 1..usa_count {
             let sector_end = i * bytes_per_sector;
 
@@ -233,9 +253,7 @@ impl NtfsScanner {
             }
 
             let offset = sector_end - 2;
-
             let existing = u16::from_le_bytes([record[offset], record[offset + 1]]);
-
             if existing != update_sequence {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -244,7 +262,6 @@ impl NtfsScanner {
             }
 
             let replacement_offset = usa_offset + (i * 2);
-
             let replacement = [record[replacement_offset], record[replacement_offset + 1]];
 
             record[offset..offset + 2].copy_from_slice(&replacement);
@@ -640,6 +657,21 @@ impl NtfsScanner {
 
         Ok(reader)
     }
+
+    pub fn file_name_to_node(record: &MftRecord, file_name: &FileNameAttribute) -> NtfsNode {
+        let file_reference = MftFileReference {
+            record_number: record.record_number as u64,
+            sequence_number: record.sequence_number,
+        };
+
+        NtfsNode {
+            file_reference,
+            parent_reference: file_name.parent_reference,
+            name: file_name.name.clone(),
+            size: file_name.real_size,
+            is_directory: file_name.flags & 0x10000000 != 0,
+        }
+    }
 }
 
 fn volume_path(drive: &str) -> String {
@@ -720,6 +752,8 @@ impl MftReader {
         ))
     }
 
+    // Reads one specific MFT record
+    // Useful for random access and debugging
     pub fn read_record(&mut self, record_number: u64) -> io::Result<Option<MftRecord>> {
         let logical_offset = record_number.checked_mul(self.record_size).ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidData, "MFT record offset overflow")
@@ -742,6 +776,8 @@ impl MftReader {
         Ok(Some(NtfsScanner::parse_mft_record(&record, false)?))
     }
 
+    // Reads the MFT in large chunks instead of reading one record at a time
+    // This is the main path used for full-volume scanning
     pub fn enumerate_records<F>(&mut self, mut callback: F) -> io::Result<()>
     where
         F: FnMut(u64, Option<MftRecord>),
@@ -818,5 +854,117 @@ impl MftReader {
 
     pub fn record_count(&self) -> u64 {
         self.real_size / self.record_size
+    }
+}
+
+impl NtfsTree {
+    pub fn new() -> Self {
+        Self {
+            nodes: Vec::new(),
+            children: Vec::new(),
+            by_reference: HashMap::new(),
+            roots: Vec::new(),
+            unattached: Vec::new(),
+        }
+    }
+
+    pub fn insert(&mut self, node: NtfsNode) -> NodeId {
+        let id = NodeId(self.nodes.len());
+
+        self.by_reference
+            .entry(node.file_reference)
+            .or_default()
+            .push(id);
+
+        self.nodes.push(node);
+        self.children.push(Vec::new());
+
+        id
+    }
+
+    pub fn node(&self, id: NodeId) -> Option<&NtfsNode> {
+        self.nodes.get(id.0)
+    }
+
+    pub fn children(&self, id: NodeId) -> Option<&[NodeId]> {
+        self.children.get(id.0).map(Vec::as_slice)
+    }
+
+    pub fn nodes(&self) -> &[NtfsNode] {
+        &self.nodes
+    }
+
+    pub fn find_by_reference(&self, reference: MftFileReference) -> Option<&[NodeId]> {
+        self.by_reference.get(&reference).map(Vec::as_slice)
+    }
+
+    pub fn roots(&self) -> &[NodeId] {
+        &self.roots
+    }
+
+    pub fn unattached(&self) -> &[NodeId] {
+        &self.unattached
+    }
+
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+
+    pub fn link_relationships(&mut self) {
+        self.roots.clear();
+        self.unattached.clear();
+
+        for children in &mut self.children {
+            children.clear();
+        }
+
+        for index in 0..self.nodes.len() {
+            let node_id = NodeId(index);
+            let node = &self.nodes[index];
+
+            if node.file_reference.record_number == 5
+                && node.parent_reference.record_number == 5
+                && node.is_directory
+            {
+                self.roots.push(node_id);
+                continue;
+            }
+
+            let Some(parent_ids) = self.by_reference.get(&node.parent_reference) else {
+                self.unattached.push(node_id);
+                continue;
+            };
+
+            let Some(parent_id) = parent_ids
+                .iter()
+                .copied()
+                .find(|id| self.nodes[id.0].is_directory)
+            else {
+                self.unattached.push(node_id);
+                continue;
+            };
+
+            self.children[parent_id.0].push(node_id);
+        }
+    }
+
+    pub fn root_count(&self) -> usize {
+        self.roots.len()
+    }
+
+    pub fn child_count(&self, id: NodeId) -> usize {
+        self.children.get(id.0).map(Vec::len).unwrap_or(0)
+    }
+
+    pub fn linked_count(&self) -> usize {
+        self.children.iter().map(Vec::len).sum()
+    }
+
+    pub fn unattached_count(&self) -> usize {
+        self.unattached.len()
     }
 }
