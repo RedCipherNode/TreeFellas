@@ -11,7 +11,6 @@ impl StdFsScanner {
     }
 
     fn scan_path(path: &Path) -> std::io::Result<Entry> {
-        // Jangan follow symlink/junction
         let metadata = fs::symlink_metadata(path)?;
 
         let mut entry = Entry {
@@ -59,7 +58,6 @@ impl StdFsScanner {
 
         entry.directory_count = 1;
 
-        // Jangan gagal kalau folder tidak bisa dibuka
         let children = match fs::read_dir(path) {
             Ok(children) => children,
             Err(_) => return Ok(entry),
@@ -73,6 +71,7 @@ impl StdFsScanner {
 
             if let Ok(child_entry) = Self::scan_dir_entry(child) {
                 entry.size += child_entry.size;
+                entry.allocated_size += child_entry.allocated_size;
                 entry.file_count += child_entry.file_count;
                 entry.directory_count += child_entry.directory_count;
 

@@ -323,7 +323,7 @@ impl NtfsScanner {
                     file_names.push(Self::parse_file_name(record, attribute)?);
                 }
 
-                0x80 if parse_data => {
+                0x80 if parse_data && record[attribute.offset + 9] == 0 => {
                     data = Some(Self::parse_data_attribute(record, attribute)?);
                 }
 
@@ -518,14 +518,26 @@ impl NtfsScanner {
         record: &[u8],
         attribute: &MftAttribute,
     ) -> io::Result<MftDataAttribute> {
-        if !attribute.non_resident {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "$DATA attribute is resident",
-            ));
-        }
-
         let offset = attribute.offset;
+
+        if !attribute.non_resident {
+            if offset + 24 > record.len() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Invalid resident $DATA attribute",
+                ));
+            }
+
+            let value_length =
+                u32::from_le_bytes(record[offset + 16..offset + 20].try_into().unwrap()) as u64;
+
+            return Ok(MftDataAttribute {
+                allocated_size: value_length,
+                real_size: value_length,
+                initialized_size: value_length,
+                runs: Vec::new(),
+            });
+        }
 
         if offset + 64 > record.len() {
             return Err(io::Error::new(
@@ -685,8 +697,17 @@ impl NtfsScanner {
 
             name: file_name.name.clone(),
 
-            size: file_name.real_size,
-            allocated_size: file_name.allocated_size,
+            size: record
+                .data
+                .as_ref()
+                .map(|data| data.real_size)
+                .unwrap_or(file_name.real_size),
+
+            allocated_size: record
+                .data
+                .as_ref()
+                .map(|data| data.allocated_size)
+                .unwrap_or(file_name.allocated_size),
 
             is_directory: file_name.flags & 0x10000000 != 0,
 
@@ -863,7 +884,7 @@ impl MftReader {
                     let parsed = if &record[0..4] == b"FILE" {
                         NtfsScanner::apply_fixup(record, self.bytes_per_sector)?;
 
-                        Some(NtfsScanner::parse_mft_record(record, false)?)
+                        Some(NtfsScanner::parse_mft_record(record, true)?)
                     } else {
                         None
                     };

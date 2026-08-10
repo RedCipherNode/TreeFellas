@@ -7,7 +7,7 @@ use treefellas_core::types::Entry;
 use treefellas_core::{NtfsScanner, NtfsTree};
 
 fn main() -> std::io::Result<()> {
-    let path = r"D:";
+    let path = r"C:\";
 
     println!("Scanning: {}", path);
 
@@ -45,40 +45,30 @@ fn main() -> std::io::Result<()> {
     let analysis = analyze(&root);
 
     println!();
-    println!("===== NTFS Scan =====");
-    println!("Size        : {}", format_size(analysis.total_size));
-    println!("Files       : {}", analysis.total_files);
-    println!("Directories : {}", analysis.total_directories);
-    println!("Elapsed     : {:?}", elapsed);
-
-    println!();
     println!("===== Filesystem Tree =====");
 
-    print_tree(&root, 0, 2);
+    print_tree(&root, 0);
+
+    println!();
+    println!("===== Analysis =====");
+    println!("Total Files       : {}", analysis.total_files);
+    println!("Total Directories : {}", analysis.total_directories);
+    println!("Total Logical Size: {}", format_size(analysis.total_size));
+    println!("Scan Time         : {:?}", elapsed);
 
     Ok(())
 }
 
-fn print_tree(entry: &Entry, depth: usize, max_depth: usize) {
+fn print_tree(entry: &Entry, depth: usize) {
     let indent = "  ".repeat(depth);
 
-    println!(
-        "{}{} | {} | {}",
-        indent,
-        entry.name,
-        if entry.is_directory {
-            "Directory"
-        } else {
-            "File"
-        },
-        format_size(entry.size),
-    );
-
-    if depth >= max_depth {
-        return;
+    if entry.is_directory {
+        println!("{}📁 {} [{}]", indent, entry.name, format_size(entry.size));
+    } else {
+        println!("{}📄 {} ({})", indent, entry.name, format_size(entry.size));
     }
 
     for child in &entry.children {
-        print_tree(child, depth + 1, max_depth);
+        print_tree(child, depth + 1);
     }
 }
