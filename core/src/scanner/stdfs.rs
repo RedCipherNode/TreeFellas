@@ -3,15 +3,14 @@ use std::path::Path;
 
 use crate::types::{Entry, Metadata};
 
-pub struct Scanner;
+pub struct StdFsScanner;
 
-impl Scanner {
+impl StdFsScanner {
     pub fn scan<P: AsRef<Path>>(path: P) -> std::io::Result<Entry> {
         Self::scan_path(path.as_ref())
     }
 
     fn scan_path(path: &Path) -> std::io::Result<Entry> {
-        // Jangan follow symlink/junction
         let metadata = fs::symlink_metadata(path)?;
 
         let mut entry = Entry {
@@ -24,6 +23,7 @@ impl Scanner {
             path: path.to_path_buf(),
 
             is_directory: metadata.is_dir(),
+            allocated_size: metadata.len(),
 
             size: 0,
             file_count: 0,
@@ -58,7 +58,6 @@ impl Scanner {
 
         entry.directory_count = 1;
 
-        // Jangan gagal kalau folder tidak bisa dibuka
         let children = match fs::read_dir(path) {
             Ok(children) => children,
             Err(_) => return Ok(entry),
@@ -72,6 +71,7 @@ impl Scanner {
 
             if let Ok(child_entry) = Self::scan_dir_entry(child) {
                 entry.size += child_entry.size;
+                entry.allocated_size += child_entry.allocated_size;
                 entry.file_count += child_entry.file_count;
                 entry.directory_count += child_entry.directory_count;
 

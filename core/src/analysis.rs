@@ -7,6 +7,7 @@ pub fn analyze(root: &Entry) -> Analysis {
         total_size: root.size,
         total_files: root.file_count,
         total_directories: root.directory_count,
+        total_allocated_size: root.allocated_size,
 
         largest_files: Vec::new(),
         largest_directories: Vec::new(),
@@ -47,12 +48,14 @@ pub fn analyze(root: &Entry) -> Analysis {
 fn visit(entry: &Entry, analysis: &mut Analysis, extensions: &mut HashMap<String, (u64, u64)>) {
     if entry.is_directory {
         analysis.largest_directories.push(EntrySummary {
+            allocated_size: entry.allocated_size,
             path: entry.path.display().to_string(),
             size: entry.size,
         });
 
         if entry.children.is_empty() {
             analysis.empty_directories.push(EntrySummary {
+                allocated_size: entry.allocated_size,
                 path: entry.path.display().to_string(),
                 size: 0,
             });
@@ -66,12 +69,14 @@ fn visit(entry: &Entry, analysis: &mut Analysis, extensions: &mut HashMap<String
     }
 
     analysis.largest_files.push(EntrySummary {
+        allocated_size: entry.allocated_size,
         path: entry.path.display().to_string(),
         size: entry.size,
     });
 
     if entry.size == 0 {
         analysis.empty_files.push(EntrySummary {
+            allocated_size: entry.allocated_size,
             path: entry.path.display().to_string(),
             size: 0,
         });

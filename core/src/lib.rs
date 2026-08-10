@@ -4,4 +4,4 @@ pub mod formatter;
 pub mod scanner;
 pub mod types;
 
-pub use scanner::Scanner;
+pub use scanner::{MftFileReference, NtfsScanner, NtfsTree, StdFsScanner};
